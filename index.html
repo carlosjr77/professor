@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutor IA - Ambiente Seguro</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root { 
+            --primary: #004d99; 
+            --bg: #f0f2f5; 
+            --mic-on: #ff4b4b; 
+            --cam-border: #ff0000;
+        }
+        
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background: var(--bg); 
+            margin: 0; 
+            display: flex; 
+            justify-content: center; 
+            height: 100vh; 
+            overflow: hidden; /* Evita barras de rolagem na página inteira */
+        }
+        
+        /* --- CAMERA DE SEGURANÇA (NOVO) --- */
+        #security-cam {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 180px;
+            height: 135px;
+            background: black;
+            border: 3px solid var(--cam-border);
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        #security-cam video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #rec-indicator {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            color: red;
+            font-weight: bold;
+            font-size: 12px;
+            background: rgba(0,0,0,0.5);
+            padding: 2px 5px;
+            border-radius: 4px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* --- ÁREA DO CHAT --- */
+        #chat-wrapper { 
+            width: 100%; 
+            max-width: 800px; 
+            background: white; 
+            height: 90vh; 
+            margin-top: 20px; 
+            border-radius: 15px; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1); 
+            display: flex; 
+            flex-direction: column; 
+            position: relative;
+        }
+        
+        #header { 
+            background: var(--primary); 
+            color: white; 
+            padding: 15px; 
+            text-align: center; 
+            font-weight: bold; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        
+        #messages { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding: 20px; 
+            padding-bottom: 80px; /* Espaço para não cobrir com a camera em telas pequenas */
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+        }
+        
+        .msg { padding: 10px 15px; border-radius: 10px; max-width: 80%; line-height: 1.5; }
+        .user { align-self: flex-end; background: #e6f7ff; border: 1px solid #b3e0ff; }
+        .ai { align-self: flex-start; background: #fff5cc; border: 1px solid #ffeebb; }
+        
+        #controls { 
+            padding: 20px; 
+            background: #fff; 
+            border-top: 1px solid #eee; 
+            display: flex; 
+            gap: 10px; 
+            align-items: center; 
+        }
+        
+        input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 25px; outline: none; }
+        
+        /* Botões */
+        .btn { padding: 12px 20px; border: none; border-radius: 25px; cursor: pointer; color: white; font-weight: bold; transition: 0.2s; }
+        #send-btn { background: var(--primary); }
+        #quiz-btn { background: #28a745; }
+        
+        /* Botão do Microfone (Liga/Desliga) */
+        #mic-btn { 
+            background: #ccc; /* Cinza = Desligado */
+            width: 50px; height: 50px; border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center; font-size: 1.2em;
+            transition: all 0.3s;
+        }
+        #mic-btn.listening { 
+            background: var(--mic-on); /* Vermelho = Ligado */
+            box-shadow: 0 0 10px var(--mic-on);
+            animation: pulse 1.5s infinite; 
+        }
+        
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+    <div id="security-cam">
+        <div id="rec-indicator">● REC</div>
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+
+    <div id="chat-wrapper">
+        <div id="header">
+            <span>🎓 Tutor de Ciências IA</span>
+            <div style="font-size: 0.8em; opacity: 0.8;">Monitorado</div>
+        </div>
+        
+        <div id="messages">
+            <div class="msg ai">Olá! Sua câmera foi ativada para segurança da avaliação. Posso ajudar com dúvidas ou gerar um quiz?</div>
+        </div>
+        
+        <div id="controls">
+            <button id="mic-btn" class="btn" title="Ativar/Desativar Voz"><i class="fas fa-microphone"></i></button>
+            
+            <input type="text" id="user-input" placeholder="Digite ou fale...">
+            <button id="send-btn" class="btn"><i class="fas fa-paper-plane"></i></button>
+            <button id="quiz-btn" class="btn">Quiz</button>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND = 'http://127.0.0.1:5000';
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('user-input');
+        const micBtn = document.getElementById('mic-btn');
+        
+        // --- 1. ATIVAÇÃO DA CÂMERA (Proctoring) ---
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoElement = document.getElementById('webcam');
+                videoElement.srcObject = stream;
+            } catch (e) {
+                alert("🚨 ALERTA DE SEGURANÇA: Não foi possível acessar sua câmera. Verifique as permissões. O teste pode ser invalidado.");
+                // Aqui você poderia bloquear o acesso se fosse rigoroso
+            }
+        }
+        // Inicia a câmera assim que a página carrega
+        window.addEventListener('load', startCamera);
+
+
+        // --- 2. CONFIGURAÇÃO DE VOZ (Liga/Desliga) ---
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new Recognition();
+        recognition.lang = 'pt-BR';
+        recognition.continuous = false; 
+
+        const synth = window.speechSynthesis;
+        let isVoiceActive = false; // Começa desligado (Silêncio)
+
+        micBtn.addEventListener('click', () => {
+            if (!isVoiceActive) {
+                // LIGAR VOZ
+                isVoiceActive = true;
+                micBtn.classList.add('listening'); // Fica vermelho
+                try { recognition.start(); } catch(e){}
+            } else {
+                // DESLIGAR VOZ
+                isVoiceActive = false;
+                micBtn.classList.remove('listening'); // Fica cinza
+                recognition.stop();
+                synth.cancel(); // Cala a boca da IA imediatamente
+            }
+        });
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            userInput.value = transcript;
+            sendMessage();
+        };
+
+        recognition.onend = () => {
+            // Só reinicia o microfone se o botão ainda estiver LIGADO (Vermelho) e a IA não estiver falando
+            if (isVoiceActive && !synth.speaking) {
+                try { recognition.start(); } catch(e){}
+            }
+        };
+
+        function speakText(text) {
+            // Só fala se o botão estiver LIGADO
+            if (!isVoiceActive) return;
+            
+            recognition.stop(); // Pausa mic para não dar eco
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'pt-BR';
+            
+            utterance.onend = () => {
+                if (isVoiceActive) try { recognition.start(); } catch(e){}
+            };
+            synth.speak(utterance);
+        }
+
+
+        // --- 3. LÓGICA DO CHAT E QUIZ ---
+        function addMsg(text, type) {
+            const div = document.createElement('div');
+            div.className = `msg ${type}`;
+            div.textContent = text;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            addMsg(text, 'user');
+            userInput.value = '';
+
+            try {
+                const res = await fetch(`${BACKEND}/ask_tutor`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pergunta: text })
+                });
+                const data = await res.json();
+                addMsg(data.resposta, 'ai');
+                speakText(data.resposta); 
+
+            } catch (e) {
+                addMsg("Erro ao conectar com o servidor.", 'ai');
+            }
+        }
+
+        document.getElementById('quiz-btn').addEventListener('click', async () => {
+            const topic = userInput.value.trim();
+            if (!topic) {
+                alert("Digite um tópico para o quiz (ex: 'Átomos').");
+                return;
+            }
+            addMsg(`Gerando quiz sobre: ${topic}...`, 'user');
+            
+            try {
+                const res = await fetch(`${BACKEND}/generate_quiz`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topico: topic })
+                });
+                const data = await res.json();
+                addMsg(data.quiz, 'ai');
+                speakText("Preparei um quiz para você. Confira a resposta correta.");
+            } catch (e) {
+                addMsg("Erro ao gerar quiz.", 'ai');
+            }
+        });
+
+        document.getElementById('send-btn').addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage() });
+
+
+        // --- 4. SEGURANÇA (Aba e Copiar) ---
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                alert("⚠️ ALERTA: Você saiu da aba da prova! O incidente foi registrado.");
+            }
+        });
+        document.addEventListener('copy', (e) => { e.preventDefault(); alert("Copiar é proibido!"); });
+
+    </script>
+</body>
+</html>
